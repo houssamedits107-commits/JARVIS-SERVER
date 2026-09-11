@@ -132,7 +132,9 @@ app.post("/api/vision", async (req, res) => {
     res.status(500).json({ error: "Internal server error." });
   }
 });
-
+app.get('/', (req, res) => {
+  res.send('Server is running successfully!');
+});
 app.listen(PORT, () => {
   console.log(`[jarvis-server] listening on http://localhost:${PORT}`);
 });
