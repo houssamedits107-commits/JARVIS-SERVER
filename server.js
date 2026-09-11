@@ -6,7 +6,7 @@ import express from "express";
 import cors from "cors";
 
 const app = express();
-app.use(cors());               // for local dev; restrict origin in production
+app.use(cors()); // for local dev; restrict origin in production
 app.use(express.json({ limit: "8mb" })); // 8mb to allow a base64 camera frame
 
 const PORT = process.env.PORT || 3787;
@@ -24,6 +24,10 @@ if (!GROQ_API_KEY) {
   console.warn("[jarvis-server] WARNING: GROQ_API_KEY is not set. /api/chat and /api/vision will fail.");
 }
 
+app.get("/", (req, res) => {
+  res.send("Server is running successfully!");
+});
+
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
@@ -33,12 +37,11 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Plain conversational turn.
-// body: { message: string, history: [{role:"user"|"assistant", content:string}] }
-app.post("/api/chat", async (req, res) => {
+// دالة معالجة الشات (تم دعم /chat و /api/chat معا)
+const handleChat = async (req, res) => {
   try {
     if (!GROQ_API_KEY) {
-      return res.status(500).json({ error: "Server has no GROQ_API_KEY configured." });
+      return res.status(500).json({ error: "GROQ_API_KEY is missing on Render Environment Variables." });
     }
     const { message, history = [] } = req.body || {};
     if (!message || typeof message !== "string") {
@@ -70,25 +73,27 @@ app.post("/api/chat", async (req, res) => {
     if (!groqRes.ok) {
       const errText = await groqRes.text();
       console.error("[jarvis-server] Groq chat error:", groqRes.status, errText);
-      return res.status(502).json({ error: "Upstream model error.", status: groqRes.status });
+      return res.status(500).json({ error: "Groq API returned an error.", details: errText });
     }
 
     const data = await groqRes.json();
     const reply = data?.choices?.[0]?.message?.content?.trim() || "";
     res.json({ reply });
   } catch (err) {
-    console.error("[jarvis-server] /api/chat failed:", err);
+    console.error("[jarvis-server] /chat failed:", err);
     res.status(500).json({ error: "Internal server error." });
   }
-});
+};
 
-// Vision turn — a single camera frame (base64 JPEG/PNG) plus a question.
-// body: { image: "data:image/jpeg;base64,...", question: string }
-// The system prompt above already forbids reading text in the image (no OCR).
+// دعم المسارين لمنع خطأ 502
+app.post("/chat", handleChat);
+app.post("/api/chat", handleChat);
+
+// Vision endpoint
 app.post("/api/vision", async (req, res) => {
   try {
     if (!GROQ_API_KEY) {
-      return res.status(500).json({ error: "Server has no GROQ_API_KEY configured." });
+      return res.status(500).json({ error: "GROQ_API_KEY is missing on Render Environment Variables." });
     }
     const { image, question = "Describe what you see, briefly." } = req.body || {};
     if (!image || typeof image !== "string" || !image.startsWith("data:image")) {
@@ -121,7 +126,7 @@ app.post("/api/vision", async (req, res) => {
     if (!groqRes.ok) {
       const errText = await groqRes.text();
       console.error("[jarvis-server] Groq vision error:", groqRes.status, errText);
-      return res.status(502).json({ error: "Upstream vision model error.", status: groqRes.status });
+      return res.status(500).json({ error: "Groq Vision API error.", details: errText });
     }
 
     const data = await groqRes.json();
@@ -132,7 +137,7 @@ app.post("/api/vision", async (req, res) => {
     res.status(500).json({ error: "Internal server error." });
   }
 });
-app.get('/', (req, res) => { res.send('Server is running successfully!'); });
+
 app.listen(PORT, () => {
-  console.log(`[jarvis-server] listening on http://localhost:${PORT}`);
+  console.log(`[jarvis-server] listening on port ${PORT}`);
 });
